@@ -6,10 +6,10 @@ import (
 )
 
 // errRealChangeFromTest is returned when a test binary is about to change the
-// real system proxy. Tests must go through GOSTPX_SYSPROXY_DRY: on 2026-10-11 a
+// real system proxy. Tests must use the dry hook (see dry_testhook.go): on 2026-10-11 a
 // test that called Session.Stop without it switched off the owner's live proxy,
 // because the default listen address matched the running tray.
-var errRealChangeFromTest = errors.New("sysproxy: тест пытается изменить настоящий системный прокси — задайте GOSTPX_SYSPROXY_DRY")
+var errRealChangeFromTest = errors.New("sysproxy: тест пытается изменить настоящий системный прокси — нужен dry-режим теста")
 
 // guardRealChange refuses real system changes from test binaries.
 // testing.Testing is false in release builds.
