@@ -66,6 +66,8 @@ var (
 
 // Engine manages local ingress proxies (HTTP & SOCKS5) and outbound TargetDialer.
 type Engine struct {
+	lifecycleMu sync.Mutex
+
 	cfg       *config.Config
 	dialer    TargetDialer
 	maskedURL string
@@ -168,6 +170,9 @@ func (e *Engine) Events() <-chan Event {
 
 // Start launches the local HTTP and SOCKS5 listeners and health probe.
 func (e *Engine) Start() error {
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
+
 	e.mu.Lock()
 	if e.running {
 		e.mu.Unlock()
@@ -291,6 +296,9 @@ func (e *Engine) Start() error {
 
 // Stop shuts down listeners and background tasks.
 func (e *Engine) Stop() error {
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
+
 	e.mu.Lock()
 	if !e.running {
 		e.mu.Unlock()
