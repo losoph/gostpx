@@ -19,8 +19,8 @@ gostpx never forces stubborn traffic: it does not block QUIC, intercept third-pa
 
 - **macOS & Windows System Tray:** clear statuses (🟢 on, 🔴 OFF, 🔴 dropped / error, 🟡 no network), RTT latency, on-demand external IP check.
 - **Settings UI:** native graphical window (Wails v3) with live connection testing and comment-preserving TOML editing.
-- **Reliability:** handshake health probes, auto-reconnect with backoff, local network loss detection, OS notifications on drop (macOS), autostart support.
-- **CLI & Terminal:** full CLI (`on`, `off`, `toggle`, `status`, `set`, `test`, `config`), plus `eval "$(gostpx env)"` for shell tools (`curl`, `git`, `npm`).
+- **Reliability:** handshake health probes, auto-reconnect with backoff, local network loss detection, OS notifications on drop and recovery (macOS and Windows), autostart support.
+- **CLI & Terminal:** full CLI (`on`, `off`, `toggle`, `status`, `set`, `test`, `config`, `doctor --connections` — a one-off check of which apps currently bypass the proxy), plus `eval "$(gostpx env)"` for shell tools (`curl`, `git`, `npm`).
 - **Security:** passwords stored separately in `credentials.toml` (`0600` permissions, [ADR-011](docs/DECISIONS.md#adr-011)); `config.toml` contains no secrets. Hot reload on config changes.
 
 ## Traffic Coverage
@@ -60,7 +60,7 @@ go test -race -tags gostpxtest ./internal/...   # tests
 
 ## Project Status
 
-**Alpha (Phase 2):** functional `sysproxy` mode for macOS and Windows. System-wide `tun` mode is postponed ([ADR-017](docs/DECISIONS.md#adr-017)).
+**v0.2.0 — Phase 2 complete:** `sysproxy` mode for macOS and Windows with tray and CLI. Next: Phase 5 (network changes, coverage verification). System-wide `tun` mode is postponed ([ADR-017](docs/DECISIONS.md#adr-017)).
 Deliberately omitted: kill-switch, bypass lists, IPv6 routing ([ADR-008](docs/DECISIONS.md#adr-008)), multiple profiles ([ADR-012](docs/DECISIONS.md#adr-012)), Shadowsocks/WireGuard ([ADR-010](docs/DECISIONS.md#adr-010)).
 
 Documentation (Russian): [LIMITATIONS.md](docs/LIMITATIONS.md) · [ARCHITECTURE.md](docs/ARCHITECTURE.md) · [DECISIONS.md](docs/DECISIONS.md) · [CONFIG.md](docs/CONFIG.md) · [CLI.md](docs/CLI.md) · [ROADMAP.md](docs/ROADMAP.md) · [COVERAGE-TESTS.md](docs/COVERAGE-TESTS.md) · [PLATFORM-NOTES.md](docs/PLATFORM-NOTES.md).
