@@ -1,0 +1,29 @@
+# сборка
+/bin/
+/dist/
+/work/
+/build/bin/
+/gostpx
+*.exe
+*.app
+
+# Wails
+/frontend/node_modules/
+/frontend/dist/
+
+# локальное
+*.local
+.DS_Store
+config.toml
+state.json
+*.log
+
+# инструменты
+.idea/
+.vscode/
+
+# proxy password file (ADR-011), never commit
+credentials.toml
+
+# ответы и логи агентов (tools/agents)
+/.agent-runs/

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Настройки gostpx</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <div id="readonly-banner" class="banner hidden">
+      🔒 Конфигурация защищена от записи (<code>ui.config_writable = false</code>). Изменения заблокированы.
+    </div>
+
+    <form id="settings-form">
+      <!-- Section: Mode -->
+      <div class="card">
+        <h3>Режим работы</h3>
+        <div class="form-group">
+          <label for="mode">Режим:</label>
+          <select id="mode" name="mode">
+            <option value="sysproxy">sysproxy — Системный прокси</option>
+            <option value="tun" disabled>tun — Весь трафик (Phase 3)</option>
+            <option value="off">off — Прямое подключение</option>
+          </select>
+          <div class="note">⚠ Режим tun недоступен (требуется фоновый демон, Phase 3).</div>
+        </div>
+      </div>
+
+      <!-- Section: Proxy (Upstream) -->
+      <div class="card">
+        <h3>Прокси-сервер (апстрим)</h3>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label for="proxy_type">Тип:</label>
+            <select id="proxy_type" name="proxy_type">
+              <option value="socks5">SOCKS5</option>
+              <option value="http">HTTP</option>
+              <option value="ssh">SSH</option>
+            </select>
+          </div>
+          <div class="form-group flex-2">
+            <label for="proxy_host">Хост (IP или домен):</label>
+            <input type="text" id="proxy_host" name="proxy_host" placeholder="например, 192.0.2.10" required>
+          </div>
+          <div class="form-group flex-1">
+            <label for="proxy_port">Порт:</label>
+            <input type="number" id="proxy_port" name="proxy_port" min="1" max="65535" placeholder="1080" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label for="proxy_user">Логин (опционально):</label>
+            <input type="text" id="proxy_user" name="proxy_user" autocomplete="username">
+          </div>
+          <div class="form-group flex-1">
+            <label for="proxy_password">Пароль:</label>
+            <div class="password-wrapper">
+              <input type="password" id="proxy_password" name="password" autocomplete="new-password">
+              <button type="button" id="btn-clear-password" class="btn-sm hidden" title="Удалить сохранённый пароль">✕</button>
+            </div>
+            <div class="field-hint">Хранится в <code>credentials.toml</code> (0600, ADR-011).</div>
+            <div id="credentials-error" class="field-error hidden"></div>
+          </div>
+        </div>
+
+        <div class="connection-check">
+          <button type="button" id="btn-check" class="btn btn-secondary">Проверить соединение</button>
+          <span id="check-status" class="status-indicator"></span>
+        </div>
+      </div>
+
+      <!-- Section: DNS -->
+      <div class="card">
+        <h3>DNS</h3>
+        <div class="form-group">
+          <label for="dns_doh">DNS-over-HTTPS (DoH URL):</label>
+          <input type="url" id="dns_doh" name="dns_doh" placeholder="https://dns.google/dns-query">
+          <div class="note">⚠ В режиме sysproxy DoH не применяется (доменные имена резолвит прокси-сервер).</div>
+        </div>
+      </div>
+
+      <!-- Section: System -->
+      <div class="card">
+        <h3>Система</h3>
+        <div class="checkbox-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="autostart" name="autostart">
+            <span>Запускать gostpx при входе в систему</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="actions">
+        <span id="save-status" class="save-status"></span>
+        <div class="button-group">
+          <button type="button" id="btn-cancel" class="btn btn-secondary">Закрыть</button>
+          <button type="submit" id="btn-save" class="btn btn-primary">Сохранить</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <script type="module" src="/wails/runtime.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

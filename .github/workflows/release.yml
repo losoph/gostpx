@@ -1,0 +1,243 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and release"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  LDFLAGS_VERSION: -X github.com/losoph/gostpx/internal/cli.Version=${{ inputs.tag || github.ref_name }}
+
+jobs:
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet and test
+        run: |
+          GOOS=windows go vet ./...
+          go test -tags gostpxtest ./internal/autostart/... ./internal/config/... ./internal/engine/... ./internal/settings/... ./internal/state/... ./internal/sysproxy/...
+          GOOS=windows go test -c -o /dev/null ./internal/session/...
+
+      - name: Build
+        run: |
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=windows GOARCH=$arch go build -trimpath \
+              -ldflags="-s -w $LDFLAGS_VERSION" \
+              -o dist/gostpx-windows-$arch.exe ./cmd/gostpx
+            CGO_ENABLED=0 GOOS=windows GOARCH=$arch go build -trimpath \
+              -ldflags="-H windowsgui -s -w $LDFLAGS_VERSION" \
+              -o dist/gostpxw-windows-$arch.exe ./cmd/gostpxw
+          done
+
+      - name: Verify release binaries have no test hooks
+        run: |
+          for arch in amd64 arm64; do
+            for bin in gostpx gostpxw; do
+              exe="dist/${bin}-windows-$arch.exe"
+              for hook in GOSTPX_SYSPROXY_DRY GOSTPX_SELFTEST GOSTPX_LAUNCH_AGENTS_DIR GOSTPX_ALLOW_NON_APP_AUTOSTART; do
+                if strings "$exe" | grep -q "$hook"; then
+                  echo "SECURITY ERROR: $hook found in $exe" >&2
+                  exit 1
+                fi
+              done
+            done
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+
+      - name: Build smoke binary (with -tags gostpxtest)
+        run: |
+          mkdir -p smoke-windows
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -tags gostpxtest \
+            -ldflags="-H windowsgui -s -w $LDFLAGS_VERSION" \
+            -o smoke-windows/gostpxw-smoke.exe ./cmd/gostpxw
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-smoke
+          path: smoke-windows/gostpxw-smoke.exe
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet and test
+        run: |
+          go vet ./...
+          go test -race -tags gostpxtest -count=1 ./internal/...
+
+      - name: Build universal binary (release)
+        run: |
+          mkdir -p work dist
+          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -trimpath \
+            -ldflags="-s -w $LDFLAGS_VERSION" \
+            -o work/gostpx-arm64 ./cmd/gostpx
+          CC="clang -arch x86_64" CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -trimpath \
+            -ldflags="-s -w $LDFLAGS_VERSION" \
+            -o work/gostpx-amd64 ./cmd/gostpx
+          lipo -create -output work/gostpx work/gostpx-amd64 work/gostpx-arm64
+          lipo -info work/gostpx
+
+      - name: Verify release binary has no test hooks
+        run: |
+          for hook in GOSTPX_SYSPROXY_DRY GOSTPX_SELFTEST GOSTPX_LAUNCH_AGENTS_DIR GOSTPX_ALLOW_NON_APP_AUTOSTART; do
+            if strings work/gostpx | grep -q "$hook"; then
+              echo "SECURITY ERROR: $hook found in release binary" >&2
+              exit 1
+            fi
+          done
+
+      - name: Assemble gostpx.app (release)
+        run: |
+          ./build/darwin/package.sh work/gostpx "${TAG}" work/gostpx.app "${{ github.run_number }}" dist/gostpx-macos-universal.zip
+          work/gostpx.app/Contents/MacOS/gostpx --version
+
+      - name: Build universal binary (smoke test with -tags gostpxtest)
+        run: |
+          mkdir -p work/smoke smoke-dist
+          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -trimpath -tags gostpxtest \
+            -ldflags="-s -w $LDFLAGS_VERSION" \
+            -o work/smoke/gostpx-arm64 ./cmd/gostpx
+          CC="clang -arch x86_64" CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -trimpath -tags gostpxtest \
+            -ldflags="-s -w $LDFLAGS_VERSION" \
+            -o work/smoke/gostpx-amd64 ./cmd/gostpx
+          lipo -create -output work/smoke/gostpx work/smoke/gostpx-amd64 work/smoke/gostpx-arm64
+          ./build/darwin/package.sh work/smoke/gostpx "${TAG}" work/smoke/gostpx-smoke.app "${{ github.run_number }}" smoke-dist/gostpx-macos-smoke.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/gostpx-macos-universal.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-smoke
+          path: smoke-dist/gostpx-macos-smoke.zip
+
+  smoke-macos:
+    needs: [macos]
+    strategy:
+      matrix:
+        os: [macos-15-intel, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-smoke
+          path: smoke-dist
+
+      - name: Unpack smoke bundle
+        run: |
+          mkdir -p work
+          unzip -q smoke-dist/gostpx-macos-smoke.zip -d work
+          mv work/gostpx-smoke.app work/gostpx.app
+
+      - name: Run smoke test
+        run: |
+          ./build/darwin/smoke.sh work/gostpx.app
+
+  smoke-windows:
+    needs: [windows]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-smoke
+          path: smoke-windows
+
+      - name: Run Windows smoke test
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\build\windows\smoke.ps1 smoke-windows\gostpxw-smoke.exe
+
+  publish:
+    needs: [windows, macos, smoke-macos, smoke-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos
+          path: dist
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Safety check: fail if any smoke bundle was downloaded into dist
+          if ls dist/*smoke* 1>/dev/null 2>&1; then
+            echo "SECURITY ERROR: smoke bundle found in release dist directory" >&2
+            exit 1
+          fi
+
+          cp config.example.toml dist/
+
+          RELEASE_FILES=(
+            dist/gostpx-macos-universal.zip
+            dist/gostpx-windows-amd64.exe
+            dist/gostpx-windows-arm64.exe
+            dist/gostpxw-windows-amd64.exe
+            dist/gostpxw-windows-arm64.exe
+            dist/config.example.toml
+          )
+
+          for f in "${RELEASE_FILES[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "ERROR: missing release file $f" >&2
+              exit 1
+            fi
+          done
+
+          (cd dist && sha256sum gostpx-macos-universal.zip gostpx-windows-amd64.exe gostpx-windows-arm64.exe gostpxw-windows-amd64.exe gostpxw-windows-arm64.exe config.example.toml > SHA256SUMS)
+          RELEASE_FILES+=(dist/SHA256SUMS)
+          ls -la dist
+
+          prerelease=""
+          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${RELEASE_FILES[@]}" --clobber
+          else
+            gh release create "$TAG" "${RELEASE_FILES[@]}" $prerelease --title "gostpx $TAG" --notes-file .github/release-notes.md
+          fi

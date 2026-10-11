@@ -1,0 +1,39 @@
+# gostpx — пример конфигурации.
+# Скопировать в путь из `gostpx config path` и поправить.
+# Формат TOML: комментарии разрешены, отступы значения не имеют.
+
+version = 1
+
+# Режим по умолчанию при старте.
+#   tun      — весь IPv4-трафик системы (нужен демон, Phase 3+)
+#   sysproxy — только приложения, уважающие системный прокси
+#   off      — не подключаться
+mode = "sysproxy"
+
+autostart   = false
+autoconnect = true
+
+[proxy]
+type   = "socks5"              # socks5 | http | ssh
+host   = "proxy.example.net"
+port   = 8000
+user   = "username"
+# пароля здесь нет: gostpx set socks5://user:pass@host:port кладёт его
+# в credentials.toml рядом с этим файлом (права 0600, ADR-011)
+
+[dns]
+# Применяется только в режиме tun. В sysproxy имена резолвит сам прокси.
+doh = "https://dns.google/dns-query"
+
+[sysproxy]
+http_listen  = "127.0.0.1:8080"
+socks_listen = "127.0.0.1:1080"
+
+[health]
+probe_interval = "60s"
+
+[log]
+level = "info"
+
+[ui]
+config_writable = true
