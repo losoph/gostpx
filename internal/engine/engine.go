@@ -97,6 +97,16 @@ type Engine struct {
 	events chan Event
 	stopCh chan struct{}
 	wg     sync.WaitGroup
+
+	tunnelsMu     sync.Mutex
+	tunnels       map[*tunnelEntry]struct{}
+	tunnelsClosed bool
+	tunnelsWg     sync.WaitGroup
+}
+
+type tunnelEntry struct {
+	client net.Conn
+	target net.Conn
 }
 
 // New creates a new Engine instance.
@@ -138,6 +148,7 @@ func New(cfg *config.Config, plainSecret string) (*Engine, error) {
 			HTTPListen:  cfg.Sysproxy.HTTPListen,
 			SOCKSListen: cfg.Sysproxy.SOCKSListen,
 		},
+		tunnels: make(map[*tunnelEntry]struct{}),
 	}
 
 	return eng, nil
@@ -169,6 +180,11 @@ func (e *Engine) Start() error {
 	e.consecutiveErrors.Store(0)
 	e.running = true
 	e.mu.Unlock()
+
+	e.tunnelsMu.Lock()
+	e.tunnels = make(map[*tunnelEntry]struct{})
+	e.tunnelsClosed = false
+	e.tunnelsMu.Unlock()
 
 	// Initial health probe before opening listeners
 	if e.cfg.Proxy.Host != "" && e.cfg.Proxy.Port > 0 {
@@ -310,6 +326,8 @@ func (e *Engine) Stop() error {
 	if socksL != nil {
 		_ = socksL.Close()
 	}
+
+	e.closeTunnels()
 
 	e.wg.Wait()
 
@@ -708,6 +726,11 @@ func (e *Engine) handleConnect(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	if !isLoopbackTarget(host) {
+		unregister := e.registerTunnel(clientConn, upConn)
+		defer unregister()
+	}
+
 	pipe(clientConn, upConn)
 }
 
@@ -845,6 +868,11 @@ func (e *Engine) handleSOCKS5Conn(clientConn net.Conn) {
 		return
 	}
 
+	if !isLoopbackTarget(dstHost) {
+		unregister := e.registerTunnel(clientConn, upConn)
+		defer unregister()
+	}
+
 	pipe(clientConn, upConn)
 }
 
@@ -897,6 +925,53 @@ func pipe(c1, c2 net.Conn) {
 
 	_ = c1.Close()
 	_ = c2.Close()
+}
+
+func (e *Engine) registerTunnel(client, target net.Conn) func() {
+	e.tunnelsMu.Lock()
+	if e.tunnelsClosed {
+		e.tunnelsMu.Unlock()
+		_ = client.Close()
+		_ = target.Close()
+		return func() {}
+	}
+	if e.tunnels == nil {
+		e.tunnels = make(map[*tunnelEntry]struct{})
+	}
+	entry := &tunnelEntry{client: client, target: target}
+	e.tunnels[entry] = struct{}{}
+	e.tunnelsWg.Add(1)
+	e.tunnelsMu.Unlock()
+
+	return func() {
+		e.tunnelsMu.Lock()
+		delete(e.tunnels, entry)
+		e.tunnelsMu.Unlock()
+		e.tunnelsWg.Done()
+	}
+}
+
+func (e *Engine) closeTunnels() {
+	e.tunnelsMu.Lock()
+	e.tunnelsClosed = true
+	conns := make([]net.Conn, 0, len(e.tunnels)*2)
+	for entry := range e.tunnels {
+		conns = append(conns, entry.client, entry.target)
+	}
+	e.tunnelsMu.Unlock()
+
+	for _, c := range conns {
+		_ = c.Close()
+	}
+
+	e.tunnelsWg.Wait()
+}
+
+// ActiveTunnels returns the number of currently active registered tunnels.
+func (e *Engine) ActiveTunnels() int {
+	e.tunnelsMu.Lock()
+	defer e.tunnelsMu.Unlock()
+	return len(e.tunnels)
 }
 
 // SetProbeParams overrides probe parameters for this Engine instance.

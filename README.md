@@ -105,7 +105,7 @@ go test -race -tags gostpxtest ./internal/...
 
 - [LIMITATIONS.md](docs/LIMITATIONS.md) — точный охват трафика (нормативный документ)
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — архитектура, компоненты, границы привилегий
-- [DECISIONS.md](docs/DECISIONS.md) — журнал архитектурных решений (ADR-001…019)
+- [DECISIONS.md](docs/DECISIONS.md) — журнал архитектурных решений (ADR-001…021)
 - [CONFIG.md](docs/CONFIG.md) — спецификация конфигурации и безопасное хранение пароля
 - [CLI.md](docs/CLI.md) — спецификация командной строки и работа без GUI
 - [ROADMAP.md](docs/ROADMAP.md) — дорожная карта проекта и текущий статус

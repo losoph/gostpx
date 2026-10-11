@@ -1,6 +1,7 @@
 let originalData = null;
 let clearPasswordFlag = false;
 let passwordChanged = false;
+let storedDnsDoh = '';
 
 document.addEventListener('DOMContentLoaded', () => {
   loadSettings();
@@ -108,7 +109,11 @@ async function loadSettings() {
     document.getElementById('proxy_host').value = data.proxy_host || '';
     document.getElementById('proxy_port').value = data.proxy_port || '';
     document.getElementById('proxy_user').value = data.proxy_user || '';
-    document.getElementById('dns_doh').value = data.dns_doh || '';
+    storedDnsDoh = data.dns_doh || '';
+    const dohEl = document.getElementById('dns_doh');
+    if (dohEl) {
+      dohEl.value = storedDnsDoh;
+    }
     document.getElementById('autostart').checked = !!data.autostart;
 
     const pwdInput = document.getElementById('proxy_password');
@@ -208,7 +213,7 @@ async function saveSettings(e) {
     proxy_host: document.getElementById('proxy_host').value.trim(),
     proxy_port: parseInt(document.getElementById('proxy_port').value, 10) || 0,
     proxy_user: document.getElementById('proxy_user').value.trim(),
-    dns_doh: document.getElementById('dns_doh').value.trim(),
+    dns_doh: storedDnsDoh,
     autostart: document.getElementById('autostart').checked,
     password: document.getElementById('proxy_password').value,
     password_changed: passwordChanged,

@@ -347,7 +347,9 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request, opts Options) {
 		"proxy.host": req.ProxyHost,
 		"proxy.port": req.ProxyPort,
 		"proxy.user": req.ProxyUser,
-		"dns.doh":    req.DNSDoH,
+	}
+	if strings.TrimSpace(req.DNSDoH) != "" {
+		updates["dns.doh"] = req.DNSDoH
 	}
 
 	proxyIdentityChanged := cfg != nil && (cfg.Proxy.Type != req.ProxyType ||

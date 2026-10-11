@@ -172,7 +172,7 @@ func TestVerifyUpstream_InvalidProtocol(t *testing.T) {
 	if !errors.Is(err, ErrInvalidProtocol) {
 		t.Errorf("expected error to wrap ErrInvalidProtocol, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "протокол") && !strings.Contains(err.Error(), "верси") {
+	if !strings.Contains(err.Error(), "отвечает как HTTP-прокси") && !strings.Contains(err.Error(), "протокол") && !strings.Contains(err.Error(), "верси") {
 		t.Errorf("expected protocol error message, got: %v", err)
 	}
 }

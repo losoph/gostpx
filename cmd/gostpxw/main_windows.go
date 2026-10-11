@@ -188,13 +188,14 @@ func main() {
 
 	menu.AddSeparator()
 
-	// 7. Normative coverage lines from LIMITATIONS.md
+	// 7. Normative coverage lines from LIMITATIONS.md (ADR-020)
+	coverage := menu.AddSubmenu("Охват…")
 	for _, item := range session.SysproxyCoverageItems() {
 		label := fmt.Sprintf("%s: %s", item.Label, item.Text)
-		cItem := menu.Add(label)
+		cItem := coverage.Add(label)
 		cItem.SetEnabled(false)
 	}
-	tunItem := menu.Add("⚠ режим tun: недоступен (нужен демон, Phase 3)")
+	tunItem := coverage.Add("⚠ режим tun: недоступен (нужен демон, Phase 3)")
 	tunItem.SetEnabled(false)
 
 	menu.AddSeparator()

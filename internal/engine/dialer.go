@@ -34,6 +34,18 @@ func (e *credentialsRejectedErr) Is(target error) bool {
 	return target == ErrCredentialsRejected || target == ErrAuthFailed
 }
 
+type protocolMismatchErr struct {
+	msg string
+}
+
+func (e *protocolMismatchErr) Error() string {
+	return e.msg
+}
+
+func (e *protocolMismatchErr) Is(target error) bool {
+	return target == ErrProtocolMismatch || target == ErrInvalidProtocol
+}
+
 var (
 	// ErrUpstreamUnreachable indicates TCP connection to the proxy host/port failed.
 	ErrUpstreamUnreachable = errors.New("прокси-сервер недоступен")
@@ -47,6 +59,10 @@ var (
 
 	// ErrInvalidProtocol indicates the upstream does not speak the expected proxy protocol.
 	ErrInvalidProtocol = errors.New("неверный протокол прокси")
+
+	// ErrProtocolMismatch indicates the upstream proxy responded with a recognized protocol
+	// different from the configured one (e.g. HTTP instead of SOCKS5). It matches ErrInvalidProtocol as well.
+	ErrProtocolMismatch error = &protocolMismatchErr{msg: "выбран неверный протокол прокси"}
 
 	// ErrTargetUnreachable indicates the upstream proxy failed to connect to the target.
 	ErrTargetUnreachable = errors.New("прокси не смог соединиться с контрольным узлом")
