@@ -161,7 +161,7 @@ gostpxd run --foreground          # для отладки
 gostpx logs                       # последние строки
 gostpx logs -f                    # следить
 gostpx logs --level debug
-gostpx doctor                     # проверка окружения
+gostpx doctor --connections [--json] # снимок соединений процессов мимо прокси
 gostpx doctor --bundle report.zip # собрать всё для разбора проблемы
 ```
 

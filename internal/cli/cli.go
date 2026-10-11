@@ -106,6 +106,9 @@ func init() {
 	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configReloadCmd)
 	RootCmd.AddCommand(configCmd)
+
+	// doctor
+	RootCmd.AddCommand(doctorCmd)
 }
 
 // Execute runs the root command and exits with the appropriate status code.

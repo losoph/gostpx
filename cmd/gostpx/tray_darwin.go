@@ -5,14 +5,20 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/losoph/gostpx/internal/autostart"
 	"github.com/losoph/gostpx/internal/config"
+	"github.com/losoph/gostpx/internal/connwatch"
 	"github.com/losoph/gostpx/internal/notify"
 	"github.com/losoph/gostpx/internal/session"
 	"github.com/losoph/gostpx/internal/settings"
@@ -199,6 +205,11 @@ func runTray() {
 	}
 	tunItem := coverage.Add("⚠ режим tun: недоступен (нужен демон, Phase 3)")
 	tunItem.SetEnabled(false)
+	coverage.AddSeparator()
+	checkBypassItem := coverage.Add("Проверить, кто идёт мимо прокси…")
+	checkBypassItem.OnClick(func(ctx *application.Context) {
+		go runConnwatchCheck(app, sess, configPath, statePath)
+	})
 
 	menu.AddSeparator()
 
@@ -796,4 +807,149 @@ func formatRTTTray(rtt time.Duration) string {
 		return "<1 мс"
 	}
 	return fmt.Sprintf("%d мс", rtt.Milliseconds())
+}
+
+// connwatchRunning keeps repeated menu clicks from starting parallel checks.
+var connwatchRunning atomic.Bool
+
+func runConnwatchCheck(app *application.App, sess *session.Session, configPath, statePath string) {
+	if !connwatchRunning.CompareAndSwap(false, true) {
+		return
+	}
+	defer connwatchRunning.Store(false)
+	// A failed diagnostic must never take the tray down (it would leave the system proxy set).
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "проверка соединений: %v\n", r)
+		}
+	}()
+	st, _ := state.Load(statePath)
+	isLocalActive := sess.IsActive()
+	isCLIActive := st != nil && st.ActiveSession && st.PID > 0 && session.IsPIDAlive(st.PID)
+	if !isLocalActive && !isCLIActive {
+		dialog := app.Dialog.Info()
+		dialog.SetTitle("gostpx: соединения мимо прокси")
+		dialog.SetMessage("Сессия gostpx не активна — все соединения идут напрямую.")
+		dialog.Show()
+		return
+	}
+
+	cfg, _, _ := config.Load(configPath)
+	if cfg == nil {
+		cfg = sess.Config()
+	}
+	if cfg == nil {
+		cfg = config.DefaultConfig()
+	}
+
+	ignore := connwatch.Ignore{
+		SelfPID: os.Getpid(),
+	}
+	if isCLIActive && st.PID > 0 {
+		ignore.SelfPID = st.PID
+	}
+
+	if ap, ok := parseListenerAddr(cfg.Sysproxy.HTTPListen); ok {
+		ignore.Listeners = append(ignore.Listeners, ap)
+	}
+	if ap, ok := parseListenerAddr(cfg.Sysproxy.SOCKSListen); ok {
+		ignore.Listeners = append(ignore.Listeners, ap)
+	}
+
+	if cfg.Proxy.Host != "" {
+		if ip, err := netip.ParseAddr(cfg.Proxy.Host); err == nil {
+			ignore.ProxyIPs = append(ignore.ProxyIPs, ip)
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			ips, err := net.DefaultResolver.LookupIP(ctx, "ip", cfg.Proxy.Host)
+			cancel()
+			if err == nil {
+				for _, ip := range ips {
+					if nip, ok := netip.AddrFromSlice(ip); ok {
+						ignore.ProxyIPs = append(ignore.ProxyIPs, nip.Unmap())
+					}
+				}
+			}
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	conns, err := connwatch.Take(ctx)
+	if err != nil {
+		dialog := app.Dialog.Info()
+		dialog.SetTitle("gostpx: соединения мимо прокси")
+		dialog.SetMessage(fmt.Sprintf("Ошибка проверки: %v", err))
+		dialog.Show()
+		return
+	}
+
+	report := connwatch.Classify(conns, ignore)
+
+	var sb strings.Builder
+	if len(report.Bypass) == 0 {
+		sb.WriteString("Мимо прокси соединений не видно.\n(эвристика: соединение мимо слушателей gostpx и не в локальную сеть)")
+	} else {
+		sb.WriteString(fmt.Sprintf("Соединения мимо прокси на %s (эвристика):\n", report.Taken.Format("15:04:05")))
+		maxLines := 9
+		displayed := 0
+		for i, g := range report.Bypass {
+			if displayed >= maxLines-1 && len(report.Bypass)-i > 1 {
+				sb.WriteString(fmt.Sprintf("... и ещё %d процессов\n", len(report.Bypass)-i))
+				displayed++
+				break
+			}
+			var pidStrs []string
+			for _, pid := range g.PIDs {
+				pidStrs = append(pidStrs, strconv.Itoa(pid))
+			}
+			pidStr := strings.Join(pidStrs, ", ")
+
+			var sampleStrs []string
+			for _, s := range g.Samples {
+				sampleStrs = append(sampleStrs, s.String())
+			}
+
+			if len(sampleStrs) > 0 {
+				sb.WriteString(fmt.Sprintf("• %s (PID %s): %d соед., напр. %s\n", g.Process, pidStr, g.Count, strings.Join(sampleStrs, ", ")))
+			} else {
+				sb.WriteString(fmt.Sprintf("• %s (PID %s): %d соед.\n", g.Process, pidStr, g.Count))
+			}
+			displayed++
+		}
+	}
+
+	dialog := app.Dialog.Info()
+	dialog.SetTitle("gostpx: соединения мимо прокси")
+	dialog.SetMessage(strings.TrimSpace(sb.String()))
+	dialog.Show()
+}
+
+func parseListenerAddr(addrStr string) (netip.AddrPort, bool) {
+	if addrStr == "" {
+		return netip.AddrPort{}, false
+	}
+	if strings.HasPrefix(addrStr, ":") {
+		addrStr = "127.0.0.1" + addrStr
+	}
+	if ap, err := netip.ParseAddrPort(addrStr); err == nil {
+		return ap, true
+	}
+	host, portStr, err := net.SplitHostPort(addrStr)
+	if err != nil {
+		return netip.AddrPort{}, false
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 0 || port > 65535 {
+		return netip.AddrPort{}, false
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return netip.AddrPort{}, false
+	}
+	return netip.AddrPortFrom(addr, uint16(port)), true
 }
