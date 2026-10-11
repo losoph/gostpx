@@ -276,3 +276,57 @@ func TestFormatRTTUnknownIsEmpty(t *testing.T) {
 		t.Errorf("FormatRTT(0) = %q, want empty", got)
 	}
 }
+
+func TestTruncateUTF16(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		maxUnits int
+		want     string
+	}{
+		// 1. Empty string
+		{name: "empty string with positive maxUnits", input: "", maxUnits: 10, want: ""},
+		{name: "empty string with zero maxUnits", input: "", maxUnits: 0, want: ""},
+		{name: "empty string with negative maxUnits", input: "", maxUnits: -1, want: ""},
+
+		// 2. Zero or negative maxUnits
+		{name: "non-empty with zero maxUnits", input: "hello", maxUnits: 0, want: ""},
+		{name: "non-empty with negative maxUnits", input: "hello", maxUnits: -3, want: ""},
+
+		// 3. ASCII
+		{name: "ASCII truncate partial", input: "hello world", maxUnits: 5, want: "hello"},
+		{name: "ASCII exact fit", input: "hello", maxUnits: 5, want: "hello"},
+		{name: "ASCII larger maxUnits", input: "hello", maxUnits: 10, want: "hello"},
+
+		// 4. Cyrillic (multibyte UTF-8, single UTF-16 code units)
+		{name: "Cyrillic truncate partial", input: "привет, мир!", maxUnits: 6, want: "привет"},
+		{name: "Cyrillic exact fit", input: "привет", maxUnits: 6, want: "привет"},
+		{name: "Cyrillic larger maxUnits", input: "соединение оборвано", maxUnits: 50, want: "соединение оборвано"},
+
+		// 5. Emoji (surrogate pairs outside BMP, 2 UTF-16 units each)
+		{name: "single emoji maxUnits 1 does not break surrogate pair", input: "😀", maxUnits: 1, want: ""},
+		{name: "single emoji exact fit 2 units", input: "😀", maxUnits: 2, want: "😀"},
+		{name: "two emojis maxUnits 2 takes first", input: "👋🌍", maxUnits: 2, want: "👋"},
+		{name: "two emojis maxUnits 3 does not split second surrogate pair", input: "👋🌍", maxUnits: 3, want: "👋"},
+		{name: "two emojis exact fit 4 units", input: "👋🌍", maxUnits: 4, want: "👋🌍"},
+
+		// 6. Mixed strings
+		{name: "mixed ASCII and emoji maxUnits odd", input: "Hi 👋!", maxUnits: 4, want: "Hi "},
+		{name: "mixed ASCII and emoji maxUnits includes emoji", input: "Hi 👋!", maxUnits: 5, want: "Hi 👋"},
+		{name: "mixed ASCII and emoji full", input: "Hi 👋!", maxUnits: 6, want: "Hi 👋!"},
+		{name: "mixed Cyrillic and emoji maxUnits odd does not break emoji", input: "Сеть 🌐 упала", maxUnits: 6, want: "Сеть "},
+		{name: "mixed Cyrillic and emoji maxUnits even includes emoji", input: "Сеть 🌐 упала", maxUnits: 7, want: "Сеть 🌐"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := TruncateUTF16(tc.input, tc.maxUnits)
+			if got != tc.want {
+				t.Errorf("TruncateUTF16(%q, %d) = %q, want %q", tc.input, tc.maxUnits, got, tc.want)
+			}
+			if !utf8.ValidString(got) {
+				t.Errorf("TruncateUTF16 produced invalid UTF-8 string: %q", got)
+			}
+		})
+	}
+}

@@ -14,6 +14,7 @@ import (
 	trayIcons "github.com/losoph/gostpx/cmd/gostpxw/icons"
 	"github.com/losoph/gostpx/internal/autostart"
 	"github.com/losoph/gostpx/internal/config"
+	"github.com/losoph/gostpx/internal/notify"
 	"github.com/losoph/gostpx/internal/session"
 	"github.com/losoph/gostpx/internal/settings"
 	"github.com/losoph/gostpx/internal/state"
@@ -136,6 +137,9 @@ func main() {
 	systray := app.SystemTray.New()
 	systray.SetIcon(trayIcons.IconOff)
 	systray.SetTooltip("gostpx: прямое подключение")
+	if !isSelftest() {
+		initNotifications(systray)
+	}
 
 	menu := app.NewMenu()
 
@@ -707,7 +711,14 @@ func main() {
 
 	// Monitor session events for immediate disconnect detection (ARCHITECTURE §7)
 	go func() {
+		policy := notify.NewPolicy()
 		for evt := range sess.Events() {
+			if !isSelftest() {
+				if msg, ok := policy.Next(evt, time.Now()); ok {
+					sendNotification(msg.Title, msg.Body)
+				}
+			}
+
 			switch evt.Type {
 			case session.EventDisconnected:
 				sess.ResetIPCache()

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 
 	"github.com/losoph/gostpx/internal/session"
 )
@@ -168,6 +169,26 @@ func truncateRunes(s string, maxRunes int) string {
 	runes := []rune(s)
 	if len(runes) > maxRunes {
 		return string(runes[:maxRunes])
+	}
+	return s
+}
+
+// TruncateUTF16 limits s to at most maxUnits UTF-16 code units (16-bit words)
+// without breaking surrogate pairs. If maxUnits <= 0 or s is empty, it returns "".
+func TruncateUTF16(s string, maxUnits int) string {
+	if maxUnits <= 0 || s == "" {
+		return ""
+	}
+	units := 0
+	for i, r := range s {
+		rlen := utf16.RuneLen(r)
+		if rlen <= 0 {
+			rlen = 1
+		}
+		if units+rlen > maxUnits {
+			return s[:i]
+		}
+		units += rlen
 	}
 	return s
 }
