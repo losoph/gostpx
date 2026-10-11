@@ -23,13 +23,78 @@ document.addEventListener('DOMContentLoaded', () => {
     if (pwdInput.value !== '') {
       clearPasswordFlag = false;
       document.getElementById('btn-clear-password').classList.remove('hidden');
+    } else {
+      document.getElementById('btn-clear-password').classList.add('hidden');
+    }
+  });
+
+  ['proxy_type', 'proxy_host', 'proxy_port', 'proxy_user'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', onProxyFieldsChanged);
+      el.addEventListener('change', onProxyFieldsChanged);
     }
   });
 });
 
+function isProxyChanged() {
+  if (!originalData) return false;
+  const currentType = document.getElementById('proxy_type').value;
+  const currentHost = document.getElementById('proxy_host').value.trim();
+  const currentPort = parseInt(document.getElementById('proxy_port').value, 10) || 0;
+  const currentUser = document.getElementById('proxy_user').value.trim();
+
+  const origType = originalData.proxy_type || 'socks5';
+  const origHost = (originalData.proxy_host || '').trim();
+  const origPort = originalData.proxy_port || 0;
+  const origUser = (originalData.proxy_user || '').trim();
+
+  return currentType !== origType ||
+         currentHost !== origHost ||
+         currentPort !== origPort ||
+         currentUser !== origUser;
+}
+
+function onProxyFieldsChanged() {
+  const pwdInput = document.getElementById('proxy_password');
+  const clearBtn = document.getElementById('btn-clear-password');
+  const hintEl = document.getElementById('proxy-changed-hint');
+
+  if (isProxyChanged()) {
+    pwdInput.value = '';
+    pwdInput.placeholder = 'пароль';
+    passwordChanged = false;
+    clearPasswordFlag = false;
+    if (clearBtn) clearBtn.classList.add('hidden');
+    if (hintEl) {
+      hintEl.textContent = 'Прокси изменён — введите пароль нового прокси (если он нужен)';
+      hintEl.classList.remove('hidden');
+    }
+  } else {
+    if (!passwordChanged) {
+      if (originalData && originalData.has_password) {
+        pwdInput.placeholder = '••••••••';
+        if (clearBtn) clearBtn.classList.remove('hidden');
+      } else {
+        pwdInput.placeholder = 'пароль';
+        if (clearBtn) clearBtn.classList.add('hidden');
+      }
+    }
+    if (hintEl && hintEl.textContent !== 'Пароль прежнего прокси сброшен') {
+      hintEl.classList.add('hidden');
+      hintEl.textContent = '';
+    }
+  }
+}
+
 async function loadSettings() {
   passwordChanged = false;
   clearPasswordFlag = false;
+  const hintEl = document.getElementById('proxy-changed-hint');
+  if (hintEl && hintEl.textContent !== 'Пароль прежнего прокси сброшен') {
+    hintEl.classList.add('hidden');
+    hintEl.textContent = '';
+  }
   try {
     const res = await fetch('/api/settings');
     if (!res.ok) {
@@ -160,7 +225,26 @@ async function saveSettings(e) {
     if (!res.ok || !result.success) {
       throw new Error(result.error || `HTTP ${res.status}`);
     }
-    showSaveStatus('Сохранено ✓', false, true);
+    const hintEl = document.getElementById('proxy-changed-hint');
+    if (result.password_cleared) {
+      showSaveStatus('Пароль прежнего прокси сброшен', false, true);
+      if (hintEl) {
+        hintEl.textContent = 'Пароль прежнего прокси сброшен';
+        hintEl.classList.remove('hidden');
+        setTimeout(() => {
+          if (hintEl.textContent === 'Пароль прежнего прокси сброшен') {
+            hintEl.classList.add('hidden');
+            hintEl.textContent = '';
+          }
+        }, 3000);
+      }
+    } else {
+      showSaveStatus('Сохранено ✓', false, true);
+      if (hintEl) {
+        hintEl.classList.add('hidden');
+        hintEl.textContent = '';
+      }
+    }
     setTimeout(() => {
       loadSettings();
     }, 500);

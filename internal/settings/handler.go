@@ -350,7 +350,36 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request, opts Options) {
 		"dns.doh":    req.DNSDoH,
 	}
 
-	// 4. Update config file surgically preserving comments byte-for-byte
+	proxyIdentityChanged := cfg != nil && (cfg.Proxy.Type != req.ProxyType ||
+		cfg.Proxy.Host != req.ProxyHost ||
+		cfg.Proxy.Port != req.ProxyPort ||
+		cfg.Proxy.User != req.ProxyUser)
+
+	// 4. Update password in credentials.toml (ADR-011)
+	// A proxy change without a re-entered password clears credentials.toml so a new proxy never gets the old one.
+	var saveCredErr error
+	passwordCleared := false
+	if req.ClearPassword {
+		saveCredErr = config.SavePassword(credPath, "")
+		passwordCleared = true
+	} else if req.PasswordChanged && req.Password != "" {
+		saveCredErr = config.SavePassword(credPath, req.Password)
+	} else if proxyIdentityChanged {
+		// An emptied field on the same proxy is not a request to clear (that is
+		// ClearPassword); on a changed proxy the old password must not carry over.
+		saveCredErr = config.SavePassword(credPath, "")
+		passwordCleared = true
+	}
+
+	if saveCredErr != nil {
+		errMsg := applyRollback(fmt.Errorf("сохранение пароля: %w", saveCredErr))
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": errMsg})
+		return
+	}
+
+	// 5. Update config file surgically preserving comments byte-for-byte
 	if err := config.UpdateFile(configPath, updates); err != nil {
 		errMsg := applyRollback(err)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -361,22 +390,6 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request, opts Options) {
 		}
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": fmt.Sprintf("Ошибка сохранения: %s", errMsg)})
-		return
-	}
-
-	// 5. Update password in credentials.toml (ADR-011)
-	var saveCredErr error
-	if req.ClearPassword {
-		saveCredErr = config.SavePassword(credPath, "")
-	} else if req.PasswordChanged && req.Password != "" {
-		saveCredErr = config.SavePassword(credPath, req.Password)
-	}
-
-	if saveCredErr != nil {
-		errMsg := applyRollback(fmt.Errorf("сохранение пароля: %w", saveCredErr))
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": errMsg})
 		return
 	}
 
@@ -410,13 +423,21 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request, opts Options) {
 	if req.PasswordChanged && req.Password != "" {
 		changedProxy = true
 	}
+	if passwordCleared && credExisted && len(credBackup) > 0 {
+		changedProxy = true
+	}
 
 	if opts.OnSaved != nil {
 		opts.OnSaved(changedProxy)
 	}
 
+	resp := map[string]any{"success": true}
+	if passwordCleared {
+		resp["password_cleared"] = true
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func handleCheckConnection(w http.ResponseWriter, r *http.Request, configPath string) {
@@ -436,8 +457,10 @@ func handleCheckConnection(w http.ResponseWriter, r *http.Request, configPath st
 	proxyType := strings.TrimSpace(req.Type)
 	user := strings.TrimSpace(req.User)
 
+	cfg, _, _ := config.Load(configPath)
+
 	if host == "" || port <= 0 {
-		if cfg, _, err := config.Load(configPath); err == nil && cfg != nil {
+		if cfg != nil {
 			if host == "" {
 				host = cfg.Proxy.Host
 			}
@@ -466,10 +489,18 @@ func handleCheckConnection(w http.ResponseWriter, r *http.Request, configPath st
 		return
 	}
 
+	var proxyDiffers bool
+	if cfg != nil && (cfg.Proxy.Host != "" || cfg.Proxy.Port > 0) {
+		proxyDiffers = cfg.Proxy.Type != proxyType ||
+			cfg.Proxy.Host != host ||
+			cfg.Proxy.Port != port ||
+			cfg.Proxy.User != user
+	}
+
 	var plainSecret string
 	if req.PasswordChanged {
 		plainSecret = req.Password
-	} else {
+	} else if !proxyDiffers {
 		credPath := config.CredentialsPath(configPath)
 		plainSecret, _ = config.LoadPassword(credPath)
 	}
